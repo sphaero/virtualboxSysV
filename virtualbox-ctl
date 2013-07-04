@@ -1,0 +1,126 @@
+#! /bin/sh
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program.  If not, see <http://www.gnu.org/licenses/>.# 
+#
+# copyright 2010 Arnaud Loonstra
+#
+### BEGIN INIT INFO
+# Provides:          virtualbox-ctl
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# X-Start-After:     vboxdrv
+# X-Stop-Before:     vboxdrv
+# Required-Start:    $all
+# Required-Stop:     $all
+# Short-Description: Virtualbox system controller
+# Description:       Debian init script for virtualbox
+### END INIT INFO
+
+PATH=/usr/local/sbin:/usr/local/bin:/sbin:/bin:/usr/sbin:/usr/bin
+MANAGE="/usr/bin/VBoxManage"
+HOSTS="/etc/default/virtualbox-autostart"
+NAME="VirtualBox Control"
+DESC="VirtualBox system control"
+
+test -x $MANAGE || exit 0
+test -e $HOSTS || exit 0
+
+. /lib/lsb/init-functions
+set -e
+
+starthosts() {
+	for i in `cat $HOSTS`
+	do
+		log_progress_msg "Starting $i, "
+		$MANAGE startvm "$i" --type vrdp
+	done
+}
+
+savestatehosts() {
+	for i in `$MANAGE list runningvms | tail -n +5 | cut -d " " -f1 | sed -s "s/^\(\(\"\(.*\)\"\)\|\('\(.*\)'\)\)\$/\\3\\5/g"`
+	do
+		log_progress_msg "Saving and closing $i, "
+		$MANAGE controlvm $i savestate
+	done
+	log_progress_msg "Waiting for hosts to go down, "
+	sleep 10
+}
+
+shutdownhosts() {
+	for i in `$MANAGE list runningvms | tail -n +5 | cut -d " " -f1 | sed -s "s/^\(\(\"\(.*\)\"\)\|\('\(.*\)'\)\)\$/\\3\\5/g"`
+	do
+		log_progress_msg "Shutting down $i, "
+		$MANAGE controlvm $i acpipowerbutton
+	done
+	log_progress_msg "Waiting for hosts to go down, "
+	sleep 10
+}
+
+poweroffhosts() {
+	if hostsrunning
+	then
+		for i in `$MANAGE list runningvms | tail -n +5 | cut -d " " -f1 | sed -s "s/^\(\(\"\(.*\)\"\)\|\('\(.*\)'\)\)\$/\\3\\5/
+g"`
+		do
+			log_progress_msg "Forcefully powering off $i, "
+			$MANAGE controlvm $i poweroff
+		done
+	fi
+
+}
+
+hostsrunning() {
+	RH=`$MANAGE list runningvms | tail -n +5 | cut -d " " -f1`
+	if [ -z "$RH" ]
+        then
+                return 1
+        else
+                log_progress_msg "Hosts still running, "
+                return 0
+        fi
+}
+
+case "$1" in
+  start)
+	log_daemon_msg "Starting $DESC" "$NAME"
+	starthosts
+	log_end_msg $?
+	;;
+  stop)
+	log_daemon_msg "Stopping $DESC" "$NAME"
+	for i in 1 2 3 4 5 6 7 8 9
+	do
+		if hostsrunning
+		then
+			log_progress_msg "$i, "
+			savestatehosts
+		else
+	                log_progress_msg "Hosts are down, "
+			break
+		fi
+	done
+	poweroffhosts
+	log_end_msg $?
+	;;
+  restart|force-reload)
+	log_daemon_msg "Hey stupid!, you don't want to do this, right?"
+	;;
+  *)
+	echo "Usage: $0 {start|stop|restart|force-reload}" >&2
+	exit 1
+	;;
+esac
+
+exit 0
+
